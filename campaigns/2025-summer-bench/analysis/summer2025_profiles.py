@@ -11,11 +11,11 @@ Two modes:
    and "12 June 2025". The raw data is not stored in this repository.
 
 2. Without --raw, re-plot from the processed CSV files already in
-   data/summer-2025/processed/:
+   data/processed/:
 
        python analysis/summer2025_profiles.py
 
-Outputs: data/summer-2025/processed/traverse_stats.csv and
+Outputs: data/processed/traverse_stats.csv and
 figures/summer2025_overview.png.
 
 Requires numpy, scipy and matplotlib.
@@ -29,7 +29,7 @@ import re
 import numpy as np
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PROC = os.path.join(ROOT, "data", "summer-2025", "processed")
+PROC = os.path.join(ROOT, "data", "processed")
 FIG = os.path.join(ROOT, "figures", "summer2025_overview.png")
 FS = 10_000.0  # Hz, sampling rate used on 3, 4 and 12 June
 
