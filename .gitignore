@@ -1,0 +1,19 @@
+# Raw data is kept out of the repository (see README, Data availability)
+*.mat
+*.zip
+*.tdms
+
+# LaTeX build files
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+
+# Python
+__pycache__/
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db
