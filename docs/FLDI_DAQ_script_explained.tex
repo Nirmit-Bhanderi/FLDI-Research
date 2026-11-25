@@ -1,0 +1,289 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage[most]{tcolorbox}
+\usepackage[colorlinks=true,linkcolor=teal!70!black,urlcolor=teal!70!black]{hyperref}
+\usepackage{enumitem}
+\setlist{itemsep=2pt,topsep=4pt}
+
+\definecolor{codebg}{RGB}{246,247,249}
+\definecolor{kw}{RGB}{29,106,134}
+\definecolor{cm}{RGB}{110,120,130}
+\definecolor{st}{RGB}{176,48,40}
+\lstdefinestyle{m}{language=Matlab,basicstyle=\ttfamily\small,keywordstyle=\color{kw}\bfseries,
+  commentstyle=\color{cm}\itshape,stringstyle=\color{st},backgroundcolor=\color{codebg},
+  frame=single,rulecolor=\color{black!12},numbers=left,numberstyle=\tiny\color{cm},
+  xleftmargin=1.6em,framexleftmargin=1.4em,breaklines=true,columns=fullflexible,keepspaces=true,
+  morekeywords={daq,addinput,read,seconds,save,saveas,struct,disp,fprintf,num2str,figure,plot,xlabel,ylabel,title,grid,isfile,error,datetime,input}}
+\lstdefinestyle{py}{language=Python,basicstyle=\ttfamily\small,keywordstyle=\color{kw}\bfseries,
+  commentstyle=\color{cm}\itshape,stringstyle=\color{st},backgroundcolor=\color{codebg},
+  frame=single,rulecolor=\color{black!12},breaklines=true,columns=fullflexible,keepspaces=true}
+\newtcolorbox{keypoint}[1][]{colback=teal!5,colframe=teal!50!black,boxrule=0.5pt,arc=2pt,left=6pt,right=6pt,top=4pt,bottom=4pt,fonttitle=\bfseries\small,title={#1}}
+\newtcolorbox{warn}[1][]{colback=orange!6,colframe=orange!60!black,boxrule=0.5pt,arc=2pt,left=6pt,right=6pt,top=4pt,bottom=4pt,fonttitle=\bfseries\small,title={#1}}
+\newcommand{\code}[1]{\texttt{#1}}
+
+\title{\vspace{-1.2cm}\textbf{The FLDI acquisition script, explained}\\[2pt]
+\large \code{DAQ\_FLDI\_Setup.m}, summer 2025 hot-air-gun campaign}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+\vspace{-1.6cm}
+
+\section{What the script does, in one paragraph}
+Each time you pressed \emph{Run}, the script recorded the photodiode voltage for one test point. It
+connects to a National Instruments (NI) data-acquisition card, records 5\,s of voltage from one
+input channel at 10\,000 samples per second, computes the size of the fluctuations (their RMS),
+saves everything to a file named \code{t<run number>.mat}, and saves a picture of the voltage
+trace as \code{t<run number>.jpg}. Before each run you edited two lines by hand: the run number
+and the position label. Nothing else changed from run to run.
+
+\section{The full script}
+\begin{lstlisting}[style=m]
+close all
+clear
+clc
+format longEng
+
+%%
+RNo = 133;
+loc = '30 mm (diode)';
+deviceID = 'Dev2';
+channelID = 'ai0';
+fs = 10000;           % Sampling frequency in Hz
+numSamples = 50000;   % Number of samples to acquire
+duration = numSamples / fs;
+
+% Create DAQ session
+dq = daq("ni");
+ch = addinput(dq, deviceID, channelID, "Voltage");
+ch.Range = [-1 1];
+
+% Configure session
+dq.Rate = fs;
+% dq.DurationInSeconds = duration;
+
+% Display acquisition start
+disp('Starting acquisition...');
+
+% Acquire data
+[data, timestamps] = read(dq, seconds(duration), "OutputFormat", "Matrix");
+
+% Display acquisition complete
+disp('Acquisition complete.');
+
+% Save data with metadata
+outputFile = 'daq_data.mat';
+channelInfo = struct( ...
+    'Device', deviceID, ...
+    'Channel', channelID, ...
+    'Rate', fs, ...
+    'NumSamples', numSamples ...
+);
+
+% Compute RMS after subtracting mean
+meanSubtracted = data - mean(data);
+rmsValue = sqrt(mean(meanSubtracted.^2));
+
+disp('Writing start.');
+filenameD = ['t' num2str(RNo) '.mat'];
+save(filenameD, 'data', 'timestamps', 'channelInfo', 'loc', 'fs', 'duration', 'numSamples', 'RNo', 'rmsValue');
+disp('Writing end.');
+
+% Display RMS
+fprintf('Mean-subtracted RMS voltage: %.4f V\n', rmsValue);
+
+% Plot the acquired data
+timeVector = (0:numSamples-1) / fs;  % Time in seconds
+figure;
+plot(timeVector, data);
+xlabel('Time (s)');
+ylabel('Voltage (V)');
+title('Acquired Voltage Signal');
+grid on;
+filename = ['t' num2str(RNo) '.jpg'];
+saveas(gcf, filename);
+\end{lstlisting}
+
+\section{Block by block}
+
+\subsection*{Lines 1--4: start from a clean slate}
+\code{close all} closes old figure windows, \code{clear} deletes all variables left over from the
+previous run, and \code{clc} clears the command window. \code{format longEng} only changes how
+numbers are printed on screen (engineering notation, e.g.\ \code{12.3456e-003}); it has no effect
+on the data. Clearing variables matters: without it, a value from the previous run could silently
+be reused.
+
+\subsection*{Lines 7--13: the settings for this run}
+\begin{itemize}
+\item \code{RNo} is the run number. It becomes the file name, so \textbf{two runs with the same
+  number overwrite each other}.
+\item \code{loc} is a free-text label for where the hot-air gun was, e.g.\ \code{'30 mm (diode)'}
+  means 30\,mm from the focus towards the photodiode; \code{(laser)} means towards the laser.
+  Other labels used: \code{'heat gun off'}, \code{'wollaston test'}, \code{'wollaston test V0'}.
+\item \code{deviceID = 'Dev2'} and \code{channelID = 'ai0'} pick the NI card and its analogue
+  input 0, where the photodiode cable was plugged in. ``Dev2'' is simply the name NI's software
+  gave the card on that computer.
+\item \code{fs = 10000} is the sampling rate (samples per second); \code{numSamples = 50000} is
+  how many samples to take. So \code{duration} $= 50000/10000 = 5$\,s.
+\end{itemize}
+
+\subsection*{Lines 16--22: configure the DAQ card}
+\code{daq("ni")} opens a connection to NI hardware through MATLAB's Data Acquisition Toolbox.
+\code{addinput} adds one voltage input channel. \code{ch.Range = [-1 1]} tells the card to expect
+voltages between $-1$ and $+1$\,V. A smaller range gives finer voltage steps; anything outside the
+range is clipped. The photodiode signal sat between about 0.01 and 0.39\,V, so this range fitted
+well. \code{dq.Rate = fs} sets 10\,kHz sampling. Line 22 is commented out and does nothing; the
+duration is given directly to \code{read} on line 28 instead.
+
+\subsection*{Line 28: record}
+\code{read(dq, seconds(5), ...)} blocks for 5\,s while the card records, then returns two column
+vectors with 50\,000 entries each: \code{data} (volts) and \code{timestamps} (seconds from the
+start, 0, 0.0001, 0.0002, \dots).
+
+\subsection*{Lines 34--49: save}
+\code{channelInfo} bundles the hardware settings into one structure so they travel with the data.
+\code{outputFile = 'daq\_data.mat'} is never used (leftover code). The file name is built as
+\code{'t'} + run number + \code{'.mat'}, and \code{save} writes nine variables into it (listed in
+Section~5).
+
+\subsection*{Lines 43--44 and 52: the RMS value}
+The script subtracts the average voltage and takes the root-mean-square of what remains:
+\[
+V_{\mathrm{rms}} = \sqrt{\frac{1}{N}\sum_{i=1}^{N}\big(V_i-\bar V\big)^2}.
+\]
+This is the standard deviation of the signal, i.e.\ the typical size of the fluctuations. The mean
+voltage $\bar V$ is the steady light level, set by where the interferometer is biased on its
+fringe; the fluctuations are what the flow causes. This printed number is the ``V'' column you
+copied into the Excel log after each run.
+
+\subsection*{Lines 55--63: quick-look plot}
+Plots voltage against time and saves it as a JPEG, so you could check by eye that the run looked
+sensible (no clipping, no dropout). The images ended up in a folder called \code{PNGs}, but they
+are JPEG files.
+
+\section{What the settings imply}
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Quantity & Value & Why it matters \\
+\midrule
+Sampling rate $f_s$ & 10\,kHz & one sample every 0.1\,ms \\
+Record length & 5\,s, 50\,000 samples & longer gives more averaging \\
+Highest resolvable frequency & $f_s/2 = 5$\,kHz & the Nyquist limit (see Section~6) \\
+Finest spectral resolution & $1/5\,\mathrm{s} = 0.2$\,Hz & before averaging blocks \\
+Input range & $\pm1$\,V & signal must stay inside \\
+Voltage step & $\approx 31\,\mu$V & 16-bit card (measured from the data) \\
+Gun-off noise level & 0.3--0.8\,mV RMS & the floor of every measurement \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{How the script was used in the experiment}
+
+\paragraph{Run-number convention.} The Excel sheets show the same pattern every day:
+\begin{itemize}
+\item \textbf{Runs 1000--1002, ``Wollaston test''}: you slowly translated the Wollaston prism
+  during the 5\,s record so the light swept through bright and dark fringes. The minimum and
+  maximum voltages give $V_{\min}$ and $V_{\max}$.
+\item \textbf{Run 1003 (or 1004), ``V0''}: the prism set back to the middle of the fringe and the
+  steady voltage $V_0$ recorded. The middle, $V_0 \approx (V_{\min}+V_{\max})/2$, is the
+  \emph{quadrature} point where the interferometer is most sensitive and most linear.
+\item \textbf{Runs 1--6, ``heat gun off''}: the background noise of the instrument.
+\item \textbf{Runs 7 onwards}: the gun at each traverse position, usually 2--3 repeats per
+  position.
+\end{itemize}
+
+\paragraph{From the logged RMS to a physical quantity.} Near quadrature, the voltage changes by
+$(V_{\max}-V_{\min})/2$ per radian of optical phase difference between the two FLDI beams. So the
+RMS phase fluctuation caused by the hot air is
+\[
+\phi_{\mathrm{rms}} \approx \frac{2\,V_{\mathrm{rms}}}{V_{\max}-V_{\min}}.
+\]
+\begin{keypoint}[{Example: 12 June, gun at the focus (run 31)}]
+$V_{\min}=0.0124$\,V, $V_{\max}=0.3759$\,V, $V_{\mathrm{rms}}=0.0338$\,V, giving
+$\phi_{\mathrm{rms}} \approx 2(0.0338)/0.3635 = 0.19$\,rad. Converting to phase is what makes
+different days comparable: on 3--4 June the fringe was about four times smaller
+($V_{\max}-V_{\min}\approx0.095$\,V), so the same voltage meant four times more phase.
+\end{keypoint}
+
+\section{What is inside a saved file, and how to open it}
+Each \code{t<RNo>.mat} contains: \code{data} (50\,000 voltages), \code{timestamps}, \code{fs},
+\code{numSamples}, \code{duration}, \code{RNo}, \code{loc}, \code{rmsValue}, and
+\code{channelInfo} (device, channel, rate, number of samples).
+
+\noindent MATLAB, with a power spectrum:
+\begin{lstlisting}[style=m,numbers=none]
+S = load('t31.mat');
+fprintf('%s, RMS = %.4f V\n', S.loc, S.rmsValue);
+[P, f] = pwelch(S.data - mean(S.data), hann(4096), 2048, 4096, S.fs);
+semilogy(f, P); xlabel('Frequency (Hz)'); ylabel('PSD (V^2/Hz)');
+\end{lstlisting}
+Python:
+\begin{lstlisting}[style=py]
+from scipy.io import loadmat
+from scipy.signal import welch
+S = loadmat('t31.mat')
+v = S['data'].ravel(); fs = float(S['fs'])
+print(S['loc'][0], v.std())          # same number as rmsValue
+f, P = welch(v - v.mean(), fs=fs, nperseg=4096)
+\end{lstlisting}
+
+\section{Limitations to know about}
+\begin{warn}[1. Nothing above 5\,kHz is measured correctly]
+At 10\,kHz sampling, any signal faster than 5\,kHz is not just lost: it \emph{aliases}, i.e.\ it
+appears at a false lower frequency. Most NI multifunction cards have no built-in filter to remove
+it. In the 12 June data at the focus the spectrum is still high at 5\,kHz, so faster turbulence is
+very likely folded into the 0--5\,kHz range and the RMS. The 30 June runs used 250\,kHz,
+which removes this problem for flows like the hot-air gun.
+\end{warn}
+\begin{warn}[2. Run number and label are typed by hand]
+A repeated \code{RNo} silently overwrites a file, and a forgotten \code{loc} edit mislabels it.
+This happened at least once: on 4 June, \code{t1004.mat} carries the label \code{'0 mm (laser)'}
+although it is a gun-off V0 check, and \code{t1003.mat} contains \code{RNo = 1004} inside.
+Always trust the Excel log together with the file, and check any odd point.
+\end{warn}
+\begin{warn}[3. The RMS includes everything]
+It contains instrument noise (0.3--0.8\,mV), slow drifts and all frequencies up to 5\,kHz.
+For sensitivity studies it is better to compute the variance in a chosen frequency band from
+\code{data}, rather than use \code{rmsValue}.
+\end{warn}
+\noindent Smaller points: the conditions of each run (gun temperature, date, time, distance from
+nozzle to beam) are not stored in the file, only in the Excel sheet; $V_{\min}$, $V_{\max}$ are
+not stored either; and \code{outputFile} and line~22 are unused.
+
+\section{A safer version for future campaigns}
+The changes below keep the same workflow but remove the manual-error risks and store what the
+analysis needs. Set \code{fs} high enough for the flow (at least twice the highest frequency of
+interest).
+\begin{lstlisting}[style=m,numbers=none]
+RNo   = 133;               % still set by hand
+z_mm  = 30;                % position: + diode side, - laser side
+note  = 'heat gun 200 C';  % free text
+fs    = 250e3;  T = 5;     % rate and duration
+Vmin  = 0.0124; Vmax = 0.3759;   % from today's Wollaston test
+
+fname = sprintf('t%d.mat', RNo);
+if isfile(fname), error('%s exists: change RNo', fname); end
+
+dq = daq("ni"); ch = addinput(dq, "Dev2", "ai0", "Voltage");
+ch.Range = [-1 1]; dq.Rate = fs;
+[data, timestamps] = read(dq, seconds(T), "OutputFormat", "Matrix");
+
+if max(abs(data)) > 0.98, warning('Signal close to range limit'); end
+rmsValue = std(data, 1);
+phiRms   = 2*rmsValue/(Vmax - Vmin);          % radians
+when     = datetime('now');
+save(fname, 'data','fs','T','RNo','z_mm','note','Vmin','Vmax', ...
+     'rmsValue','phiRms','when');
+fprintf('Run %d, z = %g mm: %.4f V rms, %.3f rad rms\n', RNo, z_mm, rmsValue, phiRms);
+\end{lstlisting}
+
+\end{document}
